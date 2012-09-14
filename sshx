@@ -18,7 +18,7 @@ function genkeys {
 }
 
 function putkeys {
-    cat `ls ~/.ssh/*.pub 2> /dev/null | head -1` | execput $1
+    cat `ls ~/.ssh/*.pub 2> /dev/null | head -1` | execput "$*"
 }
 
 function execput {
@@ -40,7 +40,7 @@ if (( $# == 0 )); then
     while read -r line
     do
         FLAG=1
-        echo -e "\t$num.) $line" | sed -r 's/(\w+@[a-zA-Z0-9_\.\-]+).*/\1/' 
+        echo -e "\t$num.) $line" | sed -r 's/(\w+@[a-zA-Z0-9_:\.]+)\[([0-9]+)\].*/\1:\2/' 
 	let num++
     done
 
@@ -52,32 +52,41 @@ if (( $# == 0 )); then
         echo -n "Please select the sites number: "
         read SEL
         registry=`head -$SEL $SSHX_REGISTRY | tail -1`
-        pat="^([a-zA-Z0-9_\.]+@[a-zA-Z0-9_\.\-]+)\s+([yn])$"
+        pat="^([a-zA-Z0-9_\.]+@[a-zA-Z0-9_:\.]+)\[([0-9]+)\]\s+([yn])$"
         if [[ $registry =~ $pat ]]; then
             h=${BASH_REMATCH[1]}
-            m=${BASH_REMATCH[2]}
+            p=${BASH_REMATCH[2]}
+            m=${BASH_REMATCH[3]}
             if [ $m != "y" ]; then
                 echo -n "Do you want to store your public key on remote machine? [y|n] "
                 read ans
                 if [ $ans == "y" ]; then
                     genkeys
-		    putkeys $h
-                    sed -ri "s/($h\s+)n$/\1y/g"  $SSHX_REGISTRY 
+		            putkeys "$h -p $p"
+                    sed -ri "s/($h\[$p\]\s+)n$/\1y/g"  $SSHX_REGISTRY 
                 fi
             fi
-            ssh -X $h # enable X forwarding
+            ssh -X $h -p $p # enable X forwarding
         fi
     fi
 else
 # DIRECT MODE
-    for p in $*; do
-        [[ $p =~ ^([a-zA-Z0-9\._]+@)?[a-zA-Z0-9\.]+$ ]] && host=$p
+    param=("$@")
+    for ((i=0; i<$#; i++))
+    do
+        [ "x${param[$i]}" == "x-p" ] && port=${param[$((i+1))]}
     done
-    pat=".+@.+"
-    if [[ ! $host =~ $pat ]]; then
-        host="${USER}@${host}"
-    fi
-    line=`grep $host $SSHX_REGISTRY`
+
+    [ "x$port" == "x" ] && port=22
+
+    for p in $*; do
+        [[ $p =~ ^([a-zA-Z0-9\._]+@)?([a-zA-Z0-9:\.]+)+$ ]] && host=$p
+    done
+    echo "Host:$host" 
+
+    [[ ! $host =~ .+@.+ ]] && host="${USER}@${host}"
+
+    line=`grep "$host\[$port\]" $SSHX_REGISTRY`
     if [ $? == 1 ]; then
         echo -n "Do you want to save this host to your bookmark? [y|n] "
         read ans1
@@ -85,23 +94,24 @@ else
         read ans2
         if [ "$ans2" == "y" ]; then
             genkeys
-	    putkeys $host
+	    putkeys "$host -p $port"
         fi
         if [ "$ans1" == "y" ]; then
-            echo "$host $ans2" >> "$SSHX_REGISTRY"
+            echo "$host[$port] $ans2" >> "$SSHX_REGISTRY"
         fi
     else
-        pat="^(\w+@[a-zA-Z0-9_\.]+)\s+([yn])$"
+        pat="^([a-zA-Z0-9_\.]+@[a-zA-Z0-9_:\.]+)\[([0-9]+)\]\s+([yn])$"
         if [[ $line =~ $pat ]]; then
             h=${BASH_REMATCH[1]}
-            m=${BASH_REMATCH[2]}
+            p=${BASH_REMATCH[2]}
+            m=${BASH_REMATCH[3]}
             if [ $m != "y" ]; then
                 echo -n "Do you want to store your public key on remote machine? [y|n] "
                 read ans
                 if [ $ans == "y" ]; then
                     genkeys
-		    putkeys $h
-                    sed -ri "s/($h\s+)n$/\1y/g"  $SSHX_REGISTRY 
+        		    putkeys "$h -p $p"
+                    sed -ri "s/($h\[$p\]\s+)n$/\1y/g"  $SSHX_REGISTRY 
                 fi
             fi
         fi
